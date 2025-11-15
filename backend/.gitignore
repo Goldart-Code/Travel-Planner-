@@ -1,0 +1,20 @@
+# Віртуальне середовище
+venv/
+.venv/
+
+# База даних SQLite
+site.db
+
+# Міграції
+#migrations/
+
+# Кеш Python
+__pycache__/
+*.pyc
+
+# Секрети
+.env
+.flaskenv
+
+# IDE (PyCharm)
+.idea/

@@ -5,3 +5,4 @@ Flask-Login
 Flask-CORS
 python-dotenv
 Werkzeug
+gunicorn
