@@ -32,7 +32,8 @@ def create_app(config_class=Config):
         from .routes import main as main_routes
         app.register_blueprint(main_routes, url_prefix='/api')
 
-        db.create_all()
+        #A change that may be required for the "Render" platform to function correctly when deployed.
+        #db.create_all()
 
     # Додаємо роут, який віддає frontend
     @app.route('/')
