@@ -30,21 +30,14 @@ def register():
     password = data.get('password')
     confirmPassword = data.get('confirmPassword')
 
-    # 1. Валідація наявності полів
     if not all([username, email, password, confirmPassword]):
         return jsonify({"error": "All fields are required"}), 400
-
-    # 2. Валідація формату Email
     if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         return jsonify({"error": "Invalid email format"}), 400
-
-    # 3. Валідація унікальності
     if User.query.filter_by(username=username).first():
         return jsonify({"error": "Username already exists"}), 400
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "Email already in use"}), 400
-
-    # 4. Валідація пароля
     if password != confirmPassword:
         return jsonify({"error": "Passwords do not match"}), 400
     if len(password) < 8:
@@ -56,17 +49,11 @@ def register():
         email=email,
         password_hash=hashed_password
     )
-
-    # Робимо першого зареєстрованого користувача адміном
     if User.query.count() == 0:
         new_user.is_admin = True
-
     db.session.add(new_user)
     db.session.commit()
-
     login_user(new_user)
-
-    # Повертаємо повний об'єкт користувача
     return jsonify(new_user.to_dict()), 201  # 201 Created
 
 
@@ -74,25 +61,16 @@ def register():
 def login():
     """Логінить користувача."""
     data = request.get_json()
-
-    # Поле 'username' з фронтенду тепер містить 'username or email'
     login_identifier = data.get('username')
     password = data.get('password')
-
     if not login_identifier or not password:
         return jsonify({"error": "Username/Email and password are required"}), 400
-
-    # Пошук за username АБО email
     user = User.query.filter(
         or_(User.username == login_identifier, User.email == login_identifier)
     ).first()
-
     if not user or not check_password_hash(user.password_hash, password):
-        return jsonify({"error": "Invalid credentials"}), 401  # 401 Unauthorized
-
+        return jsonify({"error": "Invalid credentials"}), 401
     login_user(user, remember=True)
-
-    # Повертаємо повний об'єкт користувача
     return jsonify(user.to_dict()), 200
 
 
@@ -108,7 +86,6 @@ def logout():
 def status():
     """Перевіряє, чи авторизований поточний користувач."""
     if current_user.is_authenticated:
-        # Повертаємо повний об'єкт користувача
         return jsonify({
             "isAuthenticated": True,
             "user": current_user.to_dict()
@@ -125,8 +102,8 @@ def status():
 @login_required
 def get_trips():
     """Отримує всі подорожі поточного користувача."""
+    # Модель Trip тепер автоматично сортує 'destinations'
     trips = Trip.query.filter_by(user_id=current_user.id).all()
-    # Конвертуємо подорожі та їхні пункти призначення у JSON
     trips_data = [trip.to_dict() for trip in trips]
     return jsonify(trips_data), 200
 
@@ -138,11 +115,9 @@ def create_trip():
     data = request.get_json()
     if not data or not data.get('name'):
         return jsonify({"error": "Trip name is required"}), 400
-
     new_trip = Trip(name=data['name'], user_id=current_user.id)
     db.session.add(new_trip)
     db.session.commit()
-
     return jsonify(new_trip.to_dict()), 201
 
 
@@ -151,16 +126,11 @@ def create_trip():
 def delete_trip(trip_id):
     """Видаляє подорож за ID."""
     trip = Trip.query.get_or_404(trip_id)
-
-    # Перевірка, чи належить подорож поточному користувачу
     if trip.user_id != current_user.id:
-        return jsonify({"error": "Unauthorized"}), 403  # 403 Forbidden
-
-    # Пункти призначення видаляться автоматично завдяки 'cascade'
+        return jsonify({"error": "Unauthorized"}), 403
     db.session.delete(trip)
     db.session.commit()
-
-    return "", 204  # 204 No Content
+    return "", 204
 
 
 # ======================================================
@@ -172,7 +142,6 @@ def delete_trip(trip_id):
 def add_destination(trip_id):
     """Додає новий пункт призначення до подорожі."""
     trip = Trip.query.get_or_404(trip_id)
-
     if trip.user_id != current_user.id:
         return jsonify({"error": "Unauthorized"}), 403
 
@@ -180,15 +149,18 @@ def add_destination(trip_id):
     if not data or not data.get('name') or not data.get('lat') or not data.get('lon'):
         return jsonify({"error": "Missing data (name, lat, lon required)"}), 400
 
+    # Встановлюємо order_index, щоб новий елемент був останнім
+    max_index = db.session.query(db.func.max(Destination.order_index)).filter_by(trip_id=trip.id).scalar() or 0
+
     new_dest = Destination(
         name=data['name'],
         lat=data['lat'],
         lng=data['lon'],
-        trip_id=trip.id
+        trip_id=trip.id,
+        order_index=max_index + 1
     )
     db.session.add(new_dest)
     db.session.commit()
-
     return jsonify(new_dest.to_dict()), 201
 
 
@@ -197,16 +169,63 @@ def add_destination(trip_id):
 def delete_destination(dest_id):
     """Видаляє пункт призначення за ID."""
     dest = Destination.query.get_or_404(dest_id)
+    if dest.trip.user_id != current_user.id:
+        return jsonify({"error": "Unauthorized"}), 403
+    db.session.delete(dest)
+    db.session.commit()
+    return "", 204
 
-    # Перевірка, чи належить цей пункт поточному користувачу
-    # (через перевірку належності подорожі)
+
+# --- НОВИЙ РОУТ ---
+@main.route('/destinations/<int:dest_id>', methods=['PATCH'])
+@login_required
+def update_destination(dest_id):
+    """Оновлює пункт призначення (координати, дату, нотатки)."""
+    dest = Destination.query.get_or_404(dest_id)
     if dest.trip.user_id != current_user.id:
         return jsonify({"error": "Unauthorized"}), 403
 
-    db.session.delete(dest)
-    db.session.commit()
+    data = request.get_json()
 
-    return "", 204  # 204 No Content
+    # Оновлення координат
+    if 'lat' in data:
+        dest.lat = data['lat']
+    if 'lng' in data:
+        dest.lng = data['lng']
+
+    # Оновлення нотаток і дати
+    if 'visit_date' in data:
+        dest.visit_date = data['visit_date']
+    if 'notes' in data:
+        dest.notes = data['notes']
+
+    db.session.commit()
+    return jsonify(dest.to_dict()), 200
+
+
+# --- НОВИЙ РОУТ ---
+@main.route('/trips/<int:trip_id>/destinations/reorder', methods=['POST'])
+@login_required
+def reorder_destinations(trip_id):
+    """Оновлює порядок пунктів призначення."""
+    trip = Trip.query.get_or_404(trip_id)
+    if trip.user_id != current_user.id:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.get_json()
+    destination_ids = data.get('destination_ids')  # Очікуємо [3, 1, 2]
+
+    if not destination_ids:
+        return jsonify({"error": "Missing destination_ids"}), 400
+
+    # Оновлюємо order_index для кожного ID
+    for index, dest_id in enumerate(destination_ids):
+        dest = Destination.query.get(dest_id)
+        if dest and dest.trip_id == trip.id:
+            dest.order_index = index
+
+    db.session.commit()
+    return jsonify({"message": "Order updated"}), 200
 
 
 # ======================================================
@@ -219,6 +238,5 @@ def get_all_users():
     """Повертає список всіх користувачів (тільки для адмінів)."""
     if not current_user.is_admin:
         return jsonify({"error": "Admin access required"}), 403
-
     users = User.query.all()
     return jsonify([user.to_dict() for user in users]), 200

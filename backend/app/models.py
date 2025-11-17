@@ -3,6 +3,7 @@
 from app import db, login_manager
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin
+import json  # знадобиться для to_dict
 
 
 @login_manager.user_loader
@@ -21,7 +22,8 @@ class User(UserMixin, db.Model):
     """
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(64), index=True, unique=True, nullable=False)
-    email = db.Column(db.String(120), index=True, unique=True, nullable=False)
+    # Змінено на nullable=True, щоб дозволити міграцію на існуючих даних
+    email = db.Column(db.String(120), index=True, unique=True, nullable=True)
     password_hash = db.Column(db.String(128))
 
     # Поле для реалізації вимоги про "адміністративних користувачів"
@@ -62,15 +64,24 @@ class Trip(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
     # Зв'язок з пунктами призначення
-    destinations = db.relationship('Destination', backref='trip', lazy='dynamic', cascade="all, delete-orphan")
+    destinations = db.relationship(
+        'Destination',
+        backref='trip',
+        lazy='dynamic',
+        cascade="all, delete-orphan",
+        order_by='Destination.order_index'  # Порядок за замовчуванням
+    )
 
     def to_dict(self):
         """Повертає дані подорожі у форматі JSON."""
+        # Отримуємо пункти призначення вже у правильному порядку
+        dests_list = [dest.to_dict() for dest in self.destinations]
+
         return {
             'id': self.id,
             'name': self.name,
             'user_id': self.user_id,
-            'destinations': [dest.to_dict() for dest in self.destinations]
+            'destinations': dests_list
         }
 
     def __repr__(self):
@@ -83,9 +94,16 @@ class Destination(db.Model):
     """
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(140), nullable=False)
-    address = db.Column(db.String(255))
+    address = db.Column(db.String(255), nullable=True)
     lat = db.Column(db.Float, nullable=False)
     lng = db.Column(db.Float, nullable=False)
+
+    # Зберігаємо як YYYY-MM-DD для простоти
+    visit_date = db.Column(db.String(10), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+
+    # --- Сортування ---
+    order_index = db.Column(db.Integer, nullable=False, default=0)
 
     # Зв'язок з подорожжю
     trip_id = db.Column(db.Integer, db.ForeignKey('trip.id'), nullable=False)
@@ -98,7 +116,10 @@ class Destination(db.Model):
             'address': self.address,
             'lat': self.lat,
             'lng': self.lng,
-            'trip_id': self.trip_id
+            'trip_id': self.trip_id,
+            'visit_date': self.visit_date,
+            'notes': self.notes,
+            'order_index': self.order_index
         }
 
     def __repr__(self):
