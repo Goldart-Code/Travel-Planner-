@@ -203,24 +203,54 @@
         function AuthScreen({ onAuthSuccess }) {
             const [isLoginView, setIsLoginView] = useState(true);
             const [username, setUsername] = useState('');
+            const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
+            const [confirmPassword, setConfirmPassword] = useState('');
             const [modalInfo, setModalInfo] = useState(null);
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 setModalInfo(null);
 
-                if (!username || !password) {
-                    setModalInfo({ title: "Error", message: "Username and password cannot be empty." });
-                    return;
+                // --- Клієнтська валідація ---
+                if (isLoginView) {
+                    // --- Валідація Логіну ---
+                    if (!username || !password) { // 'username' тут - це поле "Username or Email"
+                        setModalInfo({ title: "Error", message: "Username/Email and password cannot be empty." });
+                        return;
+                    }
+                } else {
+                    // --- Валідація Реєстрації ---
+                    if (!username || !email || !password || !confirmPassword) {
+                        setModalInfo({ title: "Error", message: "All fields are required for registration." });
+                        return;
+                    }
+                    if (password !== confirmPassword) {
+                        setModalInfo({ title: "Error", message: "Passwords do not match." });
+                        return;
+                    }
+                    if (password.length < 8) {
+                        setModalInfo({ title: "Error", message: "Password must be at least 8 characters long." });
+                        return;
+                    }
+                    // Проста перевірка email на клієнті
+                    if (!email.includes('@') || !email.includes('.')) {
+                        setModalInfo({ title: "Error", message: "Please enter a valid email address." });
+                        return;
+                    }
                 }
+                // --- Кінець валідації ---
 
                 const url = isLoginView ? '/auth/login' : '/auth/register';
+
+                const body = isLoginView
+                    ? { username, password } // 'username' містить 'username or email'
+                    : { username, email, password, confirmPassword };
 
                 try {
                     const userData = await apiFetch(url, {
                         method: 'POST',
-                        body: JSON.stringify({ username, password })
+                        body: JSON.stringify(body)
                     });
                     onAuthSuccess(userData);
                 } catch (err) {
@@ -235,9 +265,10 @@
                             {isLoginView ? 'Travel Planner 🗺' : 'Register'}
                         </h2>
                         <form onSubmit={handleSubmit}>
+                            {/* --- Поле Username / Username or Email --- */}
                             <div className="mb-4">
                                 <label className="block text-slate-300 text-sm font-bold mb-2" htmlFor="username">
-                                    Username
+                                    {isLoginView ? 'Username or Email' : 'Username'}
                                 </label>
                                 <input
                                     id="username"
@@ -245,9 +276,28 @@
                                     value={username}
                                     onChange={(e) => setUsername(e.target.value)}
                                     className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                    placeholder="user123"
+                                    placeholder={isLoginView ? "user123 or user@example.com" : "user123"}
                                 />
                             </div>
+
+                            {/* --- Поле Email (тільки для реєстрації) --- */}
+                            {!isLoginView && (
+                                <div className="mb-4">
+                                    <label className="block text-slate-300 text-sm font-bold mb-2" htmlFor="email">
+                                        Email
+                                    </label>
+                                    <input
+                                        id="email"
+                                        type="email"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        placeholder="user@example.com"
+                                    />
+                                </div>
+                            )}
+
+                            {/* --- Поле Password --- */}
                             <div className="mb-6">
                                 <label className="block text-slate-300 text-sm font-bold mb-2" htmlFor="password">
                                     Password
@@ -260,7 +310,29 @@
                                     className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                     placeholder="••••••••"
                                 />
+                                {/* Підказка про пароль (тільки для реєстрації) */}
+                                {!isLoginView && (
+                                    <p className="text-slate-400 text-xs mt-2">Minimum 8 characters.</p>
+                                )}
                             </div>
+
+                            {/* --- Поле Confirm Password (тільки для реєстрації) --- */}
+                            {!isLoginView && (
+                                <div className="mb-6">
+                                    <label className="block text-slate-300 text-sm font-bold mb-2" htmlFor="confirmPassword">
+                                        Confirm Password
+                                    </label>
+                                    <input
+                                        id="confirmPassword"
+                                        type="password"
+                                        value={confirmPassword}
+                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                        className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        placeholder="••••••••"
+                                    />
+                                </div>
+                            )}
+
                             <button
                                 type="submit"
                                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -271,7 +343,15 @@
                         <p className="text-center text-slate-400 text-sm mt-6">
                             {isLoginView ? "Don't have an account?" : 'Already have an account?'}
                             <button
-                                onClick={() => setIsLoginView(!isLoginView)}
+                                onClick={() => {
+                                    setIsLoginView(!isLoginView);
+                                    // Скидаємо поля при переключенні
+                                    setUsername('');
+                                    setEmail('');
+                                    setPassword('');
+                                    setConfirmPassword('');
+                                    setModalInfo(null);
+                                }}
                                 className="text-indigo-400 hover:text-indigo-300 font-bold ml-2 focus:outline-none"
                             >
                                 {isLoginView ? 'Register' : 'Login'}
@@ -613,7 +693,8 @@
                                     <li key={u.id} className="p-3 flex justify-between items-center">
                                         <div>
                                             <span className="font-medium text-white">{u.username}</span>
-                                            <span className="text-slate-400 ml-4">(ID: {u.id})</span>
+                                            {/* Показуємо email */}
+                                            <span className="text-slate-400 ml-4">({u.email})</span>
                                         </div>
                                         {u.is_admin && (
                                             <span className="ml-2 text-xs bg-yellow-600 text-white font-bold px-2 py-0.5 rounded-full">

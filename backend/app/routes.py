@@ -1,6 +1,8 @@
+import re
 from flask import Blueprint, request, jsonify
 from flask_login import login_user, logout_user, current_user, login_required
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy import or_
 
 from . import db, login_manager  # Імпортуємо з __init__.py в поточній папці
 from .models import User, Trip, Destination  # Імпортуємо з models.py в поточній папці
@@ -23,15 +25,37 @@ def load_user(user_id):
 def register():
     """Реєструє нового користувача."""
     data = request.get_json()
+    username = data.get('username')
+    email = data.get('email')
+    password = data.get('password')
+    confirmPassword = data.get('confirmPassword')
 
-    if not data or not data.get('username') or not data.get('password'):
-        return jsonify({"error": "Username and password are required"}), 400
+    # 1. Валідація наявності полів
+    if not all([username, email, password, confirmPassword]):
+        return jsonify({"error": "All fields are required"}), 400
 
-    if User.query.filter_by(username=data['username']).first():
+    # 2. Валідація формату Email
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+        return jsonify({"error": "Invalid email format"}), 400
+
+    # 3. Валідація унікальності
+    if User.query.filter_by(username=username).first():
         return jsonify({"error": "Username already exists"}), 400
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "Email already in use"}), 400
 
-    hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256')
-    new_user = User(username=data['username'], password_hash=hashed_password)
+    # 4. Валідація пароля
+    if password != confirmPassword:
+        return jsonify({"error": "Passwords do not match"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters long"}), 400
+
+    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+    new_user = User(
+        username=username,
+        email=email,
+        password_hash=hashed_password
+    )
 
     # Робимо першого зареєстрованого користувача адміном
     if User.query.count() == 0:
@@ -51,13 +75,20 @@ def login():
     """Логінить користувача."""
     data = request.get_json()
 
-    if not data or not data.get('username') or not data.get('password'):
-        return jsonify({"error": "Username and password are required"}), 400
+    # Поле 'username' з фронтенду тепер містить 'username or email'
+    login_identifier = data.get('username')
+    password = data.get('password')
 
-    user = User.query.filter_by(username=data['username']).first()
+    if not login_identifier or not password:
+        return jsonify({"error": "Username/Email and password are required"}), 400
 
-    if not user or not check_password_hash(user.password_hash, data['password']):
-        return jsonify({"error": "Invalid username or password"}), 401  # 401 Unauthorized
+    # Пошук за username АБО email
+    user = User.query.filter(
+        or_(User.username == login_identifier, User.email == login_identifier)
+    ).first()
+
+    if not user or not check_password_hash(user.password_hash, password):
+        return jsonify({"error": "Invalid credentials"}), 401  # 401 Unauthorized
 
     login_user(user, remember=True)
 
